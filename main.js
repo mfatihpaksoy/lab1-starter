@@ -14,7 +14,9 @@ ctx.configure({ device, format, alphaMode: 'opaque' });
 console.log('WebGPU ready:', format);
 
 const SHADER = `
-  struct U {time: f32, aspect: f32, mouse: vec2f};
+  struct U {
+    transform: mat4x4f
+  };
   @group(0) @binding(0) var<uniform> u: U;
 
   struct VSOut {
@@ -32,7 +34,7 @@ const SHADER = `
       vec2f(-0.35,  0.35),
       vec2f( 0.35, -0.35),
       vec2f( 0.35,  0.35));
-    
+
     var c = array<vec3f, 6>(
       vec3f(1.0, 0.0, 0.0),
       vec3f(0.0, 1.0, 0.0),
@@ -41,16 +43,12 @@ const SHADER = `
       vec3f(0.0, 0.0, 1.0),
       vec3f(1.0, 1.0, 0.0));
 
-      let a = u.time;
-      let q = vec2f(p[i].x * cos(a) - p[i].y * sin(a),
-                     p[i].x * sin(a) + p[i].y * cos(a));
-      
-
-      var out: VSOut;
-      out.pos = vec4f(q.x / u.aspect + u.mouse.x, q.y + u.mouse.y, 0.0,1.0);
-      out.colour = vec4f(c[i], 1.0);
-      return out;
+    var out: VSOut;
+    out.pos = u.transform * vec4f(p[i], 0.0, 1.0);
+    out.colour = vec4f(c[i], 1.0);
+    return out;
   }
+
   @fragment fn fs(in: VSOut) -> @location(0) vec4f {
     return in.colour;
   }` ;
@@ -65,7 +63,7 @@ const pipeline = device.createRenderPipeline({
 
 
 const ubuf = device.createBuffer({
-  size: 16,
+  size: 64,
   usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
 });
 
@@ -98,7 +96,15 @@ function frame() {
   const t = (performance.now() - t0) * 0.001;
 
   const aspect = canvas.width / canvas.height || 1;
-  device.queue.writeBuffer(ubuf, 0, new Float32Array([t, aspect, mouse.x, mouse.y]));
+  const co = Math.cos(t);
+  const si = Math.sin(t);
+  const transform = new Float32Array([
+     co / aspect,  si, 0, 0,
+    -si / aspect,  co, 0, 0,
+              0,   0, 1, 0,
+        mouse.x, mouse.y, 0, 1
+  ]);
+  device.queue.writeBuffer(ubuf, 0, transform);
 
   const enc = device.createCommandEncoder();
   const pass = enc.beginRenderPass({ colorAttachments: [{
